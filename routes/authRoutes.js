@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 const rateLimit = require("express-rate-limit");
+const { authMiddleware } = require("../middleware/authmiddleware");
 
 const router = express.Router();
 
@@ -60,9 +61,15 @@ router.post("/login", async (req, res) => {
     // JWT token
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
 
-    res.json({ 
-      message: "Login successful", 
-      token,
+    // ✅ Set cookie
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: false, // true in production (HTTPS)
+      sameSite: "lax",
+    });
+
+    res.json({
+      message: "Login successful",
       user: {
         id: user._id,
         fullname: user.fullname,
@@ -73,7 +80,6 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // 🔹 Forgot Password
 router.post("/forgot-password", forgotPasswordLimiter, async (req, res) => {
   try {
@@ -225,6 +231,123 @@ router.post("/reset-password", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// 🔹 Protected Routes (require authentication)
+
+// Get user profile
+router.get("/profile", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    
+    res.json({
+      message: "Profile retrieved successfully",
+      user: {
+        id: user._id,
+        fullname: user.fullname,
+        email: user.email,
+        createdAt: user.createdAt
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update user profile
+router.put("/profile", authMiddleware, async (req, res) => {
+  try {
+    const { fullname, email } = req.body;
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Check if email is being changed and if it's already taken
+    if (email && email !== user.email) {
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({ message: "Email already in use" });
+      }
+      user.email = email;
+    }
+
+    if (fullname) {
+      user.fullname = fullname;
+    }
+
+    await user.save();
+
+    res.json({
+      message: "Profile updated successfully",
+      user: {
+        id: user._id,
+        fullname: user.fullname,
+        email: user.email
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Change password
+router.put("/change-password", authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current password and new password are required" });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Verify current password
+    const isMatch = await user.matchPassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Current password is incorrect" });
+    }
+
+    // Update password
+    user.password = newPassword; // Will be hashed by pre("save") middleware
+    await user.save();
+
+    res.json({ message: "Password changed successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Logout (clear cookie)
+router.post("/logout", authMiddleware, (req, res) => {
+  try {
+    res.clearCookie("token", {
+      httpOnly: true,
+      secure: false, // true in production (HTTPS)
+      sameSite: "lax",
+    });
+    
+    res.json({ message: "Logout successful" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Verify token (check if user is authenticated)
+router.get("/verify", authMiddleware, (req, res) => {
+  res.json({
+    message: "Token is valid",
+    user: {
+      id: req.user.id
+    }
+  });
 });
 
 module.exports = router;
