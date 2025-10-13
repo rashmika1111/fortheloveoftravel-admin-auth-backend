@@ -1,0 +1,45 @@
+[build]
+  # Base directory for the build
+  base = "Admin-signin-backend"
+  
+  # Build command - since this is a Node.js backend, we just need to install dependencies
+  command = "npm install"
+  
+  # Functions directory for Netlify Functions
+  functions = "netlify/functions"
+  
+  # Publish directory - for a backend API, we don't need a publish directory
+  # but Netlify requires one, so we'll use a minimal setup
+  publish = "."
+
+[build.environment]
+  NODE_VERSION = "18"
+  NPM_VERSION = "9"
+
+# Redirect rules for API routes
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+
+# Headers for CORS and security
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Headers = "Content-Type, Authorization, Cookie"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+    Access-Control-Allow-Credentials = "true"
+
+# Environment variables (these should be set in Netlify dashboard)
+# PORT - automatically set by Netlify
+# NODE_ENV=production
+# MONGO_URI - your MongoDB connection string
+# JWT_SECRET - your JWT secret key
+# JWT_EXPIRES_IN=7d
+# EMAIL_HOST - your email host
+# EMAIL_PORT=587
+# EMAIL_USER - your email username
+# EMAIL_PASS - your email password
+# FRONTEND_URL - your frontend URL
+# ADMIN_FRONTEND_URL - your admin frontend URL
