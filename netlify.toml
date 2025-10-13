@@ -1,6 +1,6 @@
 [build]
-  # Base directory for the build
-  base = "Admin-signin-backend"
+  # Base directory for the build - files are in the root of the repository
+  base = "."
   
   # Build command - since this is a Node.js backend, we just need to install dependencies
   command = "npm install"
