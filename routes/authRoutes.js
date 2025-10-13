@@ -66,7 +66,12 @@ router.post("/login", async (req, res) => {
     console.log("Password match successful");
 
     // JWT token
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
+    const token = jwt.sign({ 
+      id: user._id, 
+      email: user.email, 
+      role: user.role,
+      fullname: user.fullname 
+    }, process.env.JWT_SECRET, { expiresIn: "2h" });
 
     console.log("JWT token created successfully");
 
