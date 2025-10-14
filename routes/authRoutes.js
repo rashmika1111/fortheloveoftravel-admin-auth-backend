@@ -74,16 +74,22 @@ router.post("/login", async (req, res) => {
     }, process.env.JWT_SECRET, { expiresIn: "2h" });
 
     console.log("JWT token created successfully");
+    console.log("Setting token cookie:", token.substring(0, 20) + "...");
 
     // ✅ Set cookie
     res.cookie("token", token, {
       httpOnly: true,
-      secure: false, // true in production (HTTPS)
-      sameSite: "lax",
+      secure: true, // required when sameSite is "none"
+      sameSite: "none", // allow cross-site cookie
+      domain: "localhost",
+      path: "/",        // make it available for all routes
     });
+    
+    console.log("Token cookie set successfully");
 
     res.json({
       message: "Login successful",
+      token: token,
       user: {
         id: user._id,
         fullname: user.fullname,
