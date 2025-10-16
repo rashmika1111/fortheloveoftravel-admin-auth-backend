@@ -91,31 +91,54 @@ router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    console.log("Login attempt for:", email);
+    console.log("JWT_SECRET exists:", !!process.env.JWT_SECRET);
+
     const user = await User.findOne({ email }).select('+password');
     if (!user) return res.status(400).json({ message: "Invalid credentials" });
+
+    console.log("User found:", user.email);
+
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
 
+    console.log("Password match successful");
+
     // JWT token
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
+    const token = jwt.sign({ 
+      id: user._id, 
+      email: user.email, 
+      role: user.role,
+      fullname: user.fullname 
+    }, process.env.JWT_SECRET, { expiresIn: "2h" });
+
+    console.log("JWT token created successfully");
+    console.log("Setting token cookie:", token.substring(0, 20) + "...");
 
     // ✅ Set cookie
     res.cookie("token", token, {
       httpOnly: true,
-      secure: false, // true in production (HTTPS)
-      sameSite: "lax",
+      secure: true, // required when sameSite is "none"
+      sameSite: "none", // allow cross-site cookie
+      domain: "localhost",
+      path: "/",        // make it available for all routes
     });
+    
+    console.log("Token cookie set successfully");
 
     res.json({
       message: "Login successful",
+      token: token,
       user: {
         id: user._id,
         fullname: user.fullname,
-        email: user.email
+        email: user.email,
+        role: user.role
       }
     });
   } catch (err) {
+    console.error("Login error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -145,7 +168,7 @@ router.post("/forgot-password", forgotPasswordLimiter, async (req, res) => {
     await user.save();
     
     // Construct reset link
-    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:4000'}/reset-password?token=${resetToken}`;
 
     // Create email transporter
     const transporter = nodemailer.createTransport({
