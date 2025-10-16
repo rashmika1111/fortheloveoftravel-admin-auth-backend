@@ -18,6 +18,37 @@ const forgotPasswordLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Helper function to create user in Admin-backend
+const createUserInAdminBackend = async (fullname, email, password) => {
+  try {
+    const response = await fetch(`${process.env.ADMIN_BACKEND_URL || 'http://localhost:5000'}/api/v1/users`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fullname,
+        email,
+        password,
+        role: 'contributor' // Default role for new signups
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Failed to create user in Admin-backend:', errorData);
+      return false;
+    }
+
+    const result = await response.json();
+    console.log('User created in Admin-backend:', result);
+    return true;
+  } catch (error) {
+    console.error('Error creating user in Admin-backend:', error);
+    return false;
+  }
+};
+
 // 🔹 Signup
 router.post("/signup", async (req, res) => {
   try {
@@ -31,8 +62,16 @@ router.post("/signup", async (req, res) => {
     let user = await User.findOne({ email });
     if (user) return res.status(400).json({ message: "User already exists" });
 
+    // Create user in Admin-signin-backend database
     user = new User({ fullname, email, password });
     await user.save();
+
+    // Also create user in Admin-backend database for role management
+    const adminBackendSuccess = await createUserInAdminBackend(fullname, email, password);
+    
+    if (!adminBackendSuccess) {
+      console.warn('User created in signin database but failed to create in admin database');
+    }
 
     res.status(201).json({ 
       message: "User created successfully",
@@ -59,6 +98,7 @@ router.post("/login", async (req, res) => {
     if (!user) return res.status(400).json({ message: "Invalid credentials" });
 
     console.log("User found:", user.email);
+
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
@@ -332,7 +372,7 @@ router.put("/change-password", authMiddleware, async (req, res) => {
     }
 
     // Verify current password
-    const isMatch = await user.matchPassword(currentPassword);
+    const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
       return res.status(400).json({ message: "Current password is incorrect" });
     }
@@ -370,6 +410,167 @@ router.get("/verify", authMiddleware, (req, res) => {
       id: req.user.id
     }
   });
+});
+
+// 🔹 Admin Routes (require admin role)
+
+// Get all users (admin only) - temporarily without auth for development
+router.get("/users", async (req, res) => {
+  try {
+    // TODO: Add authentication check back when login flow is implemented
+    // const currentUser = await User.findById(req.user.id);
+    // if (!currentUser || !['admin', 'super_admin'].includes(currentUser.role)) {
+    //   return res.status(403).json({ message: "Access denied. Admin role required." });
+    // }
+
+    const {
+      page = 1,
+      limit = 10,
+      role,
+      status,
+      search
+    } = req.query;
+
+    // Build filter object
+    const filter = {};
+
+    if (role && role !== 'all') filter.role = role;
+    if (status && status !== 'all') filter.isActive = status === 'active';
+
+    if (search) {
+      filter.$or = [
+        { fullname: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Execute query
+    const users = await User.find(filter)
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+
+    const total = await User.countDocuments(filter);
+
+    // Transform the response to match frontend expectations
+    const transformedUsers = users.map(user => ({
+      _id: user._id,
+      name: user.fullname, // Map fullname to name
+      email: user.email,
+      role: user.role,
+      status: user.isActive ? 'active' : 'inactive', // Map isActive to status
+      avatar: user.avatar,
+      lastActive: user.lastLogin || user.updatedAt, // Map lastLogin to lastActive, fallback to updatedAt
+      joinDate: user.createdAt, // Map createdAt to joinDate
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    }));
+
+    res.json({
+      success: true,
+      count: transformedUsers.length,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit)),
+      data: transformedUsers
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// Get single user (admin only) - temporarily without auth for development
+router.get("/users/:id", async (req, res) => {
+  try {
+    // TODO: Add authentication check back when login flow is implemented
+    // const currentUser = await User.findById(req.user.id);
+    // if (!currentUser || !['admin', 'super_admin'].includes(currentUser.role)) {
+    //   return res.status(403).json({ message: "Access denied. Admin role required." });
+    // }
+
+    const user = await User.findById(req.params.id).select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// Update user role (admin only) - temporarily without auth for development
+router.patch("/users/:id/role", async (req, res) => {
+  try {
+    // TODO: Add authentication check back when login flow is implemented
+    // const currentUser = await User.findById(req.user.id);
+    // if (!currentUser || !['admin', 'super_admin'].includes(currentUser.role)) {
+    //   return res.status(403).json({ message: "Access denied. Admin role required." });
+    // }
+
+    const { role } = req.body;
+
+    if (!role || !['admin', 'editor', 'contributor', 'super_admin'].includes(role)) {
+      return res.status(400).json({ message: "Invalid role" });
+    }
+
+    const user = await User.findById(req.params.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // TODO: Add back when authentication is implemented
+    // Don't allow updating own role
+    // if (req.params.id === req.user.id.toString()) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: 'Cannot update your own role'
+    //   });
+    // }
+
+    user.role = role;
+    await user.save();
+
+    // Transform response
+    const transformedUser = {
+      _id: user._id,
+      name: user.fullname,
+      email: user.email,
+      role: user.role,
+      status: user.isActive ? 'active' : 'inactive',
+      avatar: user.avatar,
+      lastActive: user.lastLogin || user.updatedAt,
+      joinDate: user.createdAt,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
+
+    res.json({
+      success: true,
+      data: transformedUser
+    });
+  } catch (error) {
+    console.error('Error updating user role:', error);
+    res.status(500).json({ message: "Internal server error" });
+  }
 });
 
 module.exports = router;
